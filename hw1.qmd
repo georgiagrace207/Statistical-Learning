@@ -1,0 +1,482 @@
+---
+title: "Homework #1: Supervised Learning"
+author: "Georgia Davidson"
+format: ds6030hw-html
+---
+
+
+```{r config}
+#| include: false
+# Set global configurations and settings here
+knitr::opts_chunk$set()                 # set global chunk options
+ggplot2::theme_set(ggplot2::theme_bw()) # set ggplot2 theme
+```
+
+
+# Required R packages and Directories  {.unnumbered .unlisted}
+
+```{r packages}
+#| message: false
+#| warning: false
+library(tidyverse) # functions for data manipulation
+```
+
+
+# Problem 1: Evaluating a Regression Model
+
+## a. Data generating functions
+Create a set of functions to generate data from the following distributions:
+
+\begin{align*}
+X &\sim \mathcal{N}(0, 1) \\
+Y &= -1 + .5X + .2X^2 + \epsilon \\
+\epsilon &\sim \mathcal{N}(0,\, \sigma)
+\end{align*}
+
+
+::: {.callout-note title="Solution"}
+```{r}
+
+my_data <- function(n, sigma) {
+  set.seed(611)  
+  X <- rnorm(n, mean = 0, sd = 1)
+  epsilon <- rnorm(n, mean = 0, sd = sigma)
+  Y <- -1 + 0.5 * X + 0.2 * X^2 + epsilon
+  data.frame(X = X, Y = Y)
+}
+
+```
+:::
+
+
+## b. Generate training data
+
+Simulate $n=100$ realizations from these distributions using $\sigma=3$. Produce a scatterplot and draw the true regression line $f(x) = E[Y \mid X=x]$.
+
+- Use `set.seed(611)` prior to generating the data.
+
+
+::: {.callout-note title="Solution"}
+```{r, warning=FALSE}
+
+# Generate data
+n <- 100
+sigma <- 3
+data <- my_data(n, sigma)
+
+# Making true regression line
+f_x <- function(x) -1 + 0.5 * x + 0.2 * x^2
+
+# Scatter plot + true regression line
+ggplot(data, aes(x = X, y = Y)) +
+  geom_point() +
+  stat_function(fun = f_x, color = "steelblue", linetype = "dashed", size = 1) +
+  labs(title = "Scatterplot with true regression line",
+       x = "X",
+       y = "Y") +
+  theme_minimal()
+
+```
+:::
+
+
+## c. Fit three models
+
+Fit three polynomial regression models using least squares: linear, quadratic, and cubic. Produce another scatterplot, add the fitted lines and true population line $f(x)$  using different colors, and add a legend that maps the line color to a model.
+
+- Note: The true model is quadratic, but we are also fitting linear (less complex) and cubic (more complex) models.
+
+::: {.callout-note title="Solution"}
+
+```{r, warning=FALSE}
+
+# Fit the models
+linear_mod <- lm(Y ~ X, data = data)
+quadratic_mod <- lm(Y ~ X + I(X^2), data = data)
+cubic_mod <- lm(Y ~ X + I(X^2) + I(X^3), data = data)
+
+# Predictions
+data$linear_pred <- predict(linear_mod, data)
+data$quadratic_pred <- predict(quadratic_mod, data)
+data$cubic_pred <- predict(cubic_mod, data)
+
+# Plot w/ fitted lines
+ggplot(data, aes(x = X, y = Y)) +
+  geom_point() +
+  geom_line(aes(y = linear_pred, color = "Linear"), size = 1) +
+  geom_line(aes(y = quadratic_pred, color = "Quadratic"), size = 1) +
+  geom_line(aes(y = cubic_pred, color = "Cubic"), size = 1) +
+  stat_function(fun = f_x, color = "springgreen", linetype = "dashed", size = 1) +
+  labs(title = "Fitted models + true regression line",
+       x = "X",
+       y = "Y") +
+  scale_color_manual(name = "Model", values = c("Linear" = "violetred1", "Quadratic" = "wheat1", "Cubic" = "cyan", "True Model" = "springgreen")) +
+  theme_minimal()
+
+```
+
+:::
+
+
+## d. Predictive performance
+
+Generate a *test data* set of 10,000 observations from the same distributions. Use `set.seed(612)` prior to generating the test data.
+
+- Calculate the estimated mean squared error (MSE) for each model.
+- Are the results as expected?
+
+::: {.callout-note title="Solution"}
+```{r, warning=FALSE}
+
+# Load libraries
+library(dplyr)
+
+# Function to generate test data
+generate_test_data <- function(n, sigma) {
+  set.seed(612)  
+  X <- rnorm(n, mean = 0, sd = 1)
+  epsilon <- rnorm(n, mean = 0, sd = sigma)
+  Y <- -1 + 0.5 * X + 0.2 * X^2 + epsilon
+  data.frame(X = X, Y = Y)
+}
+
+# Generate test data
+test_data <- generate_test_data(10000, sigma)
+
+# Re-run the model fitting on training data
+linear_mod <- lm(Y ~ X, data = data)
+quadratic_mod <- lm(Y ~ X + I(X^2), data = data)
+cubic_mod <- lm(Y ~ X + I(X^2) + I(X^3), data = data)
+
+# Predict on test data
+test_data$linear_pred <- predict(linear_mod, newdata = test_data)
+test_data$quadratic_pred <- predict(quadratic_mod, newdata = test_data)
+test_data$cubic_pred <- predict(cubic_mod, newdata = test_data)
+
+# Calculate MSE
+mse_linear <- mean((test_data$Y - test_data$linear_pred)^2)
+mse_quadratic <- mean((test_data$Y - test_data$quadratic_pred)^2)
+mse_cubic <- mean((test_data$Y - test_data$cubic_pred)^2)
+
+mse_linear
+mse_quadratic
+mse_cubic
+
+## Results interpretation:
+
+# Linear model has the lowest MSE among the three models, indicating that
+# it provides the best predictions on the test data. Cubic model has the
+# highest MSE, indicating that it is performing the worst of the models. 
+# Quadratic model MSE falls between these two values, so it doesn't 
+# perform quite as well as the linear but performs better than the cubic.
+
+# Normally we would expect the quadratic model to have the lowest MSE/be
+# the best fit. Possible reasons as to why it's not in this case could be
+# due to random variability in the sample, or over-fitting (cubic model is # too complex for the data).
+```
+:::
+
+
+## e. Optimal performance
+
+What is the best achievable MSE? That is, what is the MSE if the true $f(x)$ was used to evaluate the test set? How close does the best method come to achieving the optimum?
+
+::: {.callout-note title="Solution"}
+```{r, warning=FALSE}
+
+# True regression function on the test data
+test_data$true_Y <- -1 + 0.5 * test_data$X + 0.2 * test_data$X^2
+
+# Calculate MSE for true function
+true_mse <- mean((test_data$Y - test_data$true_Y)^2)
+true_mse
+
+# Results interpretation:
+
+# The best possible MSE we could achieve is 8.972119. This value is lower
+# than all three of our previous models (linear, quadratic, cubic), and
+# all of these values are relatively small so none of them are crazy far 
+# from the optimal performance. However, the linear model is the closest 
+# to achieving best possible performance due to the fact that it has the
+# smallest difference from the optimal/best achievable MSE (the 
+# difference is around 0.321657).
+```
+
+:::
+
+
+## f. Replication
+
+The MSE scores obtained in part *d* came from one realization of training data. Here will we explore how much variation there is in the MSE scores by replicating the simulation many times.
+
+- Re-run parts b. and c. (i.e., generate training data and fit models) 100 times.
+    - Do not generate new testing data
+    - Use `set.seed(613)` prior to running the simulation and do not set the seed in any other places.
+- Calculate the test MSE for all simulations.
+    - Use the same test data from part d. (This question is only about the variability that comes from the *training data*).
+- Create kernel density or histogram plots of the resulting MSE values for each model.
+
+::: {.callout-note title="Solution"}
+```{r, warning=FALSE}
+
+# Set seed (for replication)
+set.seed(613)
+
+# No. of simulations
+num_simulations <- 100
+
+# Storage for MSE's
+mse_linear_storage <- numeric(num_simulations)
+mse_quadratic_storage <- numeric(num_simulations)
+mse_cubic_storage <- numeric(num_simulations)
+
+for (i in 1:num_simulations) {
+
+  # Generate training data
+  train_data <- my_data(n, sigma)
+  
+  # Fit models
+  linear_mod <- lm(Y ~ X, data = train_data)
+  quadratic_mod <- lm(Y ~ X + I(X^2), data = train_data)
+  cubic_mod <- lm(Y ~ X + I(X^2) + I(X^3), data = train_data)
+  
+  # Predict on test data
+  test_data$linear_pred <- predict(linear_mod, test_data)
+  test_data$quadratic_pred <- predict(quadratic_mod, test_data)
+  test_data$cubic_pred <- predict(cubic_mod, test_data)
+  
+  # Calculate MSE's
+  mse_linear_storage[i] <- mean((test_data$Y - test_data$linear_pred)^2)
+  mse_quadratic_storage[i] <- mean((test_data$Y - test_data$quadratic_pred)^2)
+  mse_cubic_storage[i] <- mean((test_data$Y - test_data$cubic_pred)^2)
+}
+
+# Create data frame (for plotting)
+mse_data <- data.frame(
+  MSE = c(mse_linear_storage, mse_quadratic_storage, mse_cubic_storage),
+  Model = rep(c("Linear", "Quadratic", "Cubic"), each = num_simulations)
+)
+
+# Plot the MSE distributions
+ggplot(mse_data, aes(x = MSE, fill = Model)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density plot of MSE across our simulations",
+       x = "MSE",
+       y = "Density") +
+  theme_minimal()
+
+```
+:::
+
+
+## g. Best model
+
+Show a count of how many times each model was the best. That is, out of the 100 simulations, count how many times each model had the lowest MSE.
+
+::: {.callout-note title="Solution"}
+```{r, warning=FALSE}
+
+# Storage for the best model count
+best_model_count <- c(Linear = 0, Quadratic = 0, Cubic = 0)
+
+for (i in 1:num_simulations) {
+
+  # Generate training data
+  train_data <- my_data(n, sigma)
+  
+  # Fit models
+  linear_mod <- lm(Y ~ X, data = train_data)
+  quadratic_mod <- lm(Y ~ X + I(X^2), data = train_data)
+  cubic_mod <- lm(Y ~ X + I(X^2) + I(X^3), data = train_data)
+  
+  # Predict on test data
+  test_data$linear_pred <- predict(linear_mod, test_data)
+  test_data$quadratic_pred <- predict(quadratic_mod, test_data)
+  test_data$cubic_pred <- predict(cubic_mod, test_data)
+  
+  # Calculate MSE's
+  mse_linear <- mean((test_data$Y - test_data$linear_pred)^2)
+  mse_quadratic <- mean((test_data$Y - test_data$quadratic_pred)^2)
+  mse_cubic <- mean((test_data$Y - test_data$cubic_pred)^2)
+  
+  # Store MSE's
+  mse_linear_storage[i] <- mse_linear
+  mse_quadratic_storage[i] <- mse_quadratic
+  mse_cubic_storage[i] <- mse_cubic
+  
+  # Identify which model has the lowest MSE
+  min_mse <- min(mse_linear, mse_quadratic, mse_cubic)
+  if (min_mse == mse_linear) {
+    best_model_count["Linear"] <- best_model_count["Linear"] + 1
+  }
+  if (min_mse == mse_quadratic) {
+    best_model_count["Quadratic"] <- best_model_count["Quadratic"] + 1
+  }
+  if (min_mse == mse_cubic) {
+    best_model_count["Cubic"] <- best_model_count["Cubic"] + 1
+  }
+}
+
+# Print count of the best model
+print(best_model_count)
+```
+
+:::
+
+
+## h. Function to implement simulation
+
+Write a function that implements the simulation in part *f*. The function should have arguments for i) the size of the training data $n$, ii) the standard deviation of the random error $\sigma$, and iii) the test data.  Use the same `set.seed(613)`. 
+
+::: {.callout-note title="Solution"}
+```{r}
+simulate_model_performance <- function(n, sigma, test_data) {
+  set.seed(613)  
+  
+  # No. of simulations
+  num_simulations <- 100
+  
+  # Storage for MSE's + best model counts
+  mse_linear_storage <- numeric(num_simulations)
+  mse_quadratic_storage <- numeric(num_simulations)
+  mse_cubic_storage <- numeric(num_simulations)
+  best_model_count <- c(Linear = 0, Quadratic = 0, Cubic = 0)
+  
+  for (i in 1:num_simulations) {
+
+    # Generate training data
+    train_data <- my_data(n, sigma)
+    
+    # Fit models
+    linear_mod <- lm(Y ~ X, data = train_data)
+    quadratic_mod <- lm(Y ~ X + I(X^2), data = train_data)
+    cubic_mod <- lm(Y ~ X + I(X^2) + I(X^3), data = train_data)
+    
+    # Predict on test data
+    test_data$linear_pred <- predict(linear_mod, test_data)
+    test_data$quadratic_pred <- predict(quadratic_mod, test_data)
+    test_data$cubic_pred <- predict(cubic_mod, test_data)
+    
+    # Calculate MSE's
+    mse_linear <- mean((test_data$Y - test_data$linear_pred)^2)
+    mse_quadratic <- mean((test_data$Y - test_data$quadratic_pred)^2)
+    mse_cubic <- mean((test_data$Y - test_data$cubic_pred)^2)
+    
+    # Store MSE's
+    mse_linear_storage[i] <- mse_linear
+    mse_quadratic_storage[i] <- mse_quadratic
+    mse_cubic_storage[i] <- mse_cubic
+    
+    # Identify which model has lowest MSE
+    min_mse <- min(mse_linear, mse_quadratic, mse_cubic)
+    if (min_mse == mse_linear) {
+      best_model_count["Linear"] <- best_model_count["Linear"] + 1
+    }
+    if (min_mse == mse_quadratic) {
+      best_model_count["Quadratic"] <- best_model_count["Quadratic"] + 1
+    }
+    if (min_mse == mse_cubic) {
+      best_model_count["Cubic"] <- best_model_count["Cubic"] + 1
+    }
+  }
+  
+  return(best_model_count)
+}
+
+best_model_count
+```
+:::
+
+
+## i. Performance when $\sigma=2$ 
+
+Use your function to repeat the simulation in part *f*, but use $\sigma=2$. Report the number of times each model was best (you do not need to produce any plots). 
+
+- Be sure to generate new test data with ($n = 10000$, $\sigma = 2$, using `seed = 612`). 
+
+::: {.callout-note title="Solution"}
+```{r}
+
+# Generate test data
+set.seed(612) 
+test_data <- my_data(n = 10000, sigma = 2)
+
+# Call function
+best_model_counts_sigma2 <- simulate_model_performance(n = 300, sigma = 2, test_data)
+
+# Print results
+print(best_model_counts_sigma2)
+```
+:::
+
+
+## j. Performance when $\sigma=4$ and $n=300$
+
+Repeat *i*, but now use $\sigma=4$ and $n=300$.
+
+- Be sure to generate new test data with ($n = 10000$, $\sigma = 4$, using `seed = 612`). 
+
+::: {.callout-note title="Solution"}
+```{r}
+
+# Generate test data
+set.seed(612)  
+test_data <- my_data(n = 10000, sigma = 4)
+
+# Call function
+best_model_counts_sigma4_n300 <- simulate_model_performance(n = 300, sigma = 4, test_data)
+
+# Print results
+print(best_model_counts_sigma4_n300)
+
+```
+:::
+
+
+## k. Understanding
+
+Describe the effects $\sigma$ and $n$ has on selection of the best model? Why is the *true* model form (i.e., quadratic) not always the *best* model to use when prediction is the goal?
+
+::: {.callout-note title="Solution"}
+```{r}
+# It seems as though as sigma increased from 2 to 4, the performance of 
+# the quadratic and cubic models went down and the linear model performed
+# better, likely because the higher noise levels made it more difficult 
+# for the more complex models to distinguish the true signal from the 
+# noise, and therefore they experienced over-fitting. Whereas simpler 
+# linear models are less likely to include random data fluctuations. 
+
+# Also a larger sample size tends to allow for more accurate estimation of
+# the model parameters, thus leading to a better model fitting. When n =
+# 300, the cubic model was able to better fit the data versus when n was
+# smaller/unspecified. Yet if the noise level is high (per the previous)
+# section, a large sample size may not necessarily be enough for complex
+#models to properly distinguish signal from noise, leading to the linear 
+# model performing better. 
+
+# That being said, the true model form is not always the best. The 
+# quadratic model in particular is not always the best due to the trade-
+# offs between complexity and noise -- high noise levels can make it hard
+# to separate signal from noise, leading to the simpler models performing
+# better (as they're less prone to overfitting) and providing a better
+# generalization of the data. 
+```
+
+
+
+```
+
+
+
+
+
+
+```
+:::
+
+
+
+
+
+
+

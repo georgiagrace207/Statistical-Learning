@@ -1,0 +1,410 @@
+---
+title: "Homework #5: Probability and Classification" 
+author: "**Georgia Davidson**"
+format: ds6030hw-html
+---
+
+```{r config, include=FALSE}
+# Set global configurations and settings here
+knitr::opts_chunk$set()                 # set global chunk options
+ggplot2::theme_set(ggplot2::theme_bw()) # set ggplot2 theme
+```
+
+
+# Required R packages and Directories {.unnumbered .unlisted}
+
+```{r packages, message=FALSE, warning=FALSE}
+dir_data= 'https://mdporter.github.io/teaching/data/' # data directory
+library(glmnet)
+library(tidyverse) # functions for data manipulation  
+```
+
+
+# Crime Linkage
+
+Crime linkage attempts to determine if a set of unsolved crimes share a common offender. *Pairwise* crime linkage is the more simple task of deciding if two crimes share a common offender; it can be considered a binary classification problem. The linkage training data has 8 evidence variables that measure the similarity between a pair of crimes:
+
+- `spatial` is the spatial distance between the crimes
+- `temporal` is the fractional time (in days) between the crimes
+- `tod` and `dow` are the differences in time of day and day of week between the crimes
+- `LOC`, `POA,` and `MOA` are binary with a 1 corresponding to a match (type of property, point of entry, method of entry)
+- `TIMERANGE` is the time between the earliest and latest possible times the crime could have occurred (because the victim was away from the house during the crime).
+- The response variable indicates if the crimes are linked ($y=1$) or unlinked ($y=0$).
+
+
+These problems use the [linkage-train](`r file.path(dir_data, "linkage_train.csv") `) and [linkage-test](`r file.path(dir_data, "linkage_test.csv") `) datasets (click on links for data). 
+
+
+## Load Crime Linkage Data
+
+::: {.callout-note title="Solution"}
+```{r}
+library(readr)
+linkage_train <- read_csv(file.path(dir_data, "linkage_train.csv"))
+linkage_test <- read_csv(file.path(dir_data, "linkage_test.csv"))
+```
+:::
+
+# Problem 1: Penalized Regression for Crime Linkage
+
+## a. Fit a penalized *linear regression* model to predict linkage. 
+
+Use an elastic net penalty (including lasso and ridge) (your choice). 
+
+- Report the value of $\alpha \in [0, 1]$ used. 
+- Report the value of $\lambda$ used.
+- Report the estimated coefficients.
+
+::: {.callout-note title="Solution"}
+```{r}
+
+
+# Prepare data for modeling
+X_train <- as.matrix(linkage_train %>% select(spatial, temporal, tod, dow, LOC, POA, MOA, TIMERANGE))
+y_train <- linkage_train$y
+
+# Fit elastic net model
+set.seed(123)  
+alpha_value <- 0.5  # (example alpha)
+cv_model <- cv.glmnet(X_train, y_train, alpha = alpha_value, family = "gaussian")
+
+# Extract best lambda
+best_lambda <- cv_model$lambda.min
+
+# Get coefficients for best lambda
+model_coefficients <- coef(cv_model, s = "lambda.min")
+
+# Results
+list(alpha = alpha_value, lambda = best_lambda, coefficients = model_coefficients)
+
+
+
+```
+
+:::
+
+
+## b. Fit a penalized *logistic regression* model to predict linkage. 
+
+Use an elastic net penalty (including lasso and ridge) (your choice). 
+
+- Report the value of $\alpha \in [0, 1]$ used. 
+- Report the value of $\lambda$ used.
+- Report the estimated coefficients.
+
+::: {.callout-note title="Solution"}
+```{r}
+# Prepare data for modeling
+X_train_logistic <- as.matrix(linkage_train %>% select(spatial, temporal, tod, dow, LOC, POA, MOA, TIMERANGE))
+y_train_logistic <- linkage_train$y 
+
+# Fit elastic net model for logistic regression
+set.seed(123)  # For reproducibility
+alpha_value_logistic <- 0.5  # Example alpha for elastic net
+cv_model_logistic <- cv.glmnet(X_train_logistic, y_train_logistic, alpha = alpha_value_logistic, family = "binomial")
+
+# Extract the best lambda
+best_lambda_logistic <- cv_model_logistic$lambda.min
+
+# Get the coefficients for the best lambda
+model_coefficients_logistic <- coef(cv_model_logistic, s = "lambda.min")
+
+# Output the results
+list(alpha = alpha_value_logistic, lambda = best_lambda_logistic, coefficients = model_coefficients_logistic)
+
+
+```
+:::
+
+# Problem 2: Random Forest for Crime Linkage
+
+Fit a random forest model to predict crime linkage. 
+
+- Report the loss function (or splitting rule) used. 
+- Report any non-default tuning parameters.
+- Report the variable importance (indicate which importance method was used). 
+
+::: {.callout-note title="Solution"}
+```{r}
+# Load libraries
+library(randomForest)
+
+# Prepare data for modeling
+X_train_rf <- linkage_train %>% select(spatial, temporal, tod, dow, LOC, POA, MOA, TIMERANGE)
+y_train_rf <- linkage_train$y  
+
+# Fit the model
+set.seed(123)  
+rf_model <- randomForest(x = X_train_rf, y = as.factor(y_train_rf), ntree = 500)  
+
+print(rf_model)
+
+
+```
+:::
+
+# Problem 3: ROC Curves
+
+## a. ROC curve: training data
+
+Produce one plot that has the ROC curves, using the *training data*, for all three models (linear, logistic, and random forest). Use color and/or linetype to distinguish between models and include a legend.    
+Also report the AUC (area under the ROC curve) for each model. Again, use the *training data*. 
+
+- Note: you should be weary of being asked to evaluation predictive performance from the same data used to estimate the tuning and model parameters. The next problem will walk you through a more proper way of evaluating predictive performance with resampling. 
+
+::: {.callout-note title="Solution"}
+```{r}
+#Load libraries
+library(pROC)
+
+# Step 1: Generate predictions
+
+# a) Logistic
+log_model <- glm(y ~ ., data = linkage_train, family = binomial)
+log_probs <- predict(log_model, type = "response")
+
+# b) Linear
+lm_model <- lm(y ~ ., data = linkage_train)
+linear_probs <- predict(lm_model, type = "response")  
+
+# c) Random forest
+rf_probs <- predict(rf_model, type = "prob")[, 2]  
+
+# Step 2: Generate ROC curves and calculate area under curve for each model
+
+roc_log <- roc(linkage_train$y, log_probs)
+roc_linear <- roc(linkage_train$y, linear_probs)
+roc_rf <- roc(linkage_train$y, rf_probs)
+
+auc_log <- auc(roc_log)
+auc_linear <- auc(roc_linear)
+auc_rf <- auc(roc_rf)
+
+# Step 3: Plot curves
+
+plot(roc_log, col = "hotpink", lwd = 2, main = "ROC Curves for Different Models")
+lines(roc_linear, col = "purple", lwd = 2)
+lines(roc_rf, col = "steelblue", lwd = 2)
+legend("bottomright", legend = c("Logistic Regression", "Linear Regression", "Random Forest"),
+       col = c("hotpink", "purple", "steelblue"), lwd = 2)
+
+
+```
+:::
+
+
+## b. ROC curve: resampling estimate
+
+Recreate the ROC curve from the penalized logistic regression (logreg) and random forest (rf) models using repeated hold-out data. The following steps will guide you:
+
+- For logreg, use $\alpha=.75$. For rf use *mtry = 2*,  *num.trees = 1000*, and fix any other tuning parameters at your choice. 
+- Run the following steps 25 times:
+    i. Hold out 500 observations.
+    ii. Use the remaining observations to estimate $\lambda$ using 10-fold CV for the logreg model. Don't tune any rf parameters.
+    iii. Predict the probability of linkage for the 500 hold-out observations.
+    iv. Store the predictions and hold-out labels.
+    v. Calculate the AUC. 
+- Report the mean AUC and standard error for both models. Compare to the results from part a. 
+- Produce two plots showing the 25 ROC curves for each model. 
+- Note: by estimating $\lambda$ each iteration, we are incorporating the uncertainty present in estimating that tuning parameter. 
+    
+::: {.callout-note title="Solution"} 
+```{r}
+# Set up for resampling
+set.seed(123)
+n_iterations <- 5 # reduced from 25, due to technical issues
+hold_out_size <- 100 # reduced from 500, due to technical issues
+auc_log_resampled <- numeric(n_iterations)
+auc_rf_resampled <- numeric(n_iterations)
+roc_log_resampled <- vector("list", n_iterations)  
+roc_rf_resampled <- vector("list", n_iterations)   
+
+# Run resampling loop
+for (i in 1:n_iterations) {
+    # Ensure that both classes are present in the hold-out set
+    hold_out_data <- NULL
+    while (is.null(hold_out_data) || nrow(hold_out_data) < hold_out_size) {
+        # Randomly select observations to hold out
+        hold_out_indices <- sample(nrow(linkage_train), hold_out_size)
+        hold_out_data <- linkage_train[hold_out_indices, ]
+        
+        # Check if both classes are present
+        if (length(unique(hold_out_data$y)) < 2) {
+            hold_out_data <- NULL  
+        }
+    }
+    
+    training_data <- linkage_train[-hold_out_indices, ]
+
+    # Fit logistic regression w/ cross-validation to find lambda
+    log_model_cv <- cv.glmnet(as.matrix(training_data %>% select(-y)), 
+                               training_data$y, alpha = 0.75, family = "binomial")
+    log_lambda <- log_model_cv$lambda.min
+    log_probs_hold_out <- predict(log_model_cv, newx = as.matrix(hold_out_data %>% select(-y)), 
+                                   s = log_lambda, type = "response")
+
+    # Fit random forest
+    rf_model_resampled <- randomForest(x = training_data %>% select(-y), 
+                                       y = as.factor(training_data$y), 
+                                       mtry = 2, ntree = 200)
+    rf_probs_hold_out <- predict(rf_model_resampled, newdata = hold_out_data %>% select(-y), type = "prob")[, 2]
+
+    # Calculate AUC for both models
+    auc_log_resampled[i] <- auc(roc(hold_out_data$y, as.vector(log_probs_hold_out)))
+    auc_rf_resampled[i] <- auc(roc(hold_out_data$y, as.vector(rf_probs_hold_out)))
+
+    # Store ROC curves for later plotting
+    roc_log_resampled[[i]] <- roc(hold_out_data$y, as.vector(log_probs_hold_out))
+    roc_rf_resampled[[i]] <- roc(hold_out_data$y, as.vector(rf_probs_hold_out))
+}
+
+# Calculate mean and SE
+mean_auc_log <- mean(auc_log_resampled)
+se_auc_log <- sd(auc_log_resampled) / sqrt(n_iterations)
+
+mean_auc_rf <- mean(auc_rf_resampled)
+se_auc_rf <- sd(auc_rf_resampled) / sqrt(n_iterations)
+
+# Plotting ROC curves for logistic regression
+plot(roc_log_resampled[[1]], col = "green", lwd = 2, main = "ROC Curves for Logistic Regression (Resampling)")
+for (i in 2:n_iterations) {
+    lines(roc_log_resampled[[i]], col = "green", lwd = 0.5)
+}
+
+# Plotting ROC curves for random forest
+plot(roc_rf_resampled[[1]], col = "darkgreen", lwd = 2, main = "ROC Curves for Random Forest (Resampling)")
+for (i in 2:n_iterations) {
+    lines(roc_rf_resampled[[i]], col = "darkgreen", lwd = 0.5)
+}
+
+
+```
+
+
+# Problem 4: Contest
+
+## a. Contest Part 1: Predict the estimated *probability* of linkage. 
+
+Predict the estimated *probability* of linkage for the test data (using any model). 
+
+- Submit a .csv file (ensure comma separated format) named `lastname_firstname_1.csv` that includes the column named **p** that is your estimated posterior probability. We will use automated evaluation, so the format must be exact. 
+- You are free to any model (even ones we haven't yet covered in the course).
+- You are free to use any data transformation or feature engineering.
+- You will receive credit for a proper submission; the top five scores will receive 2 bonus points.     
+- Your probabilities will be evaluated with respect to the mean negative Bernoulli log-likelihood (known as the average *log-loss* metric):
+$$ 
+L = - \frac{1}{M} \sum_{i=1}^m [y_i \log \, \hat{p}_i + (1 - y_i) \log \, (1 - \hat{p}_i)]
+$$
+where $M$ is the number of test observations, $\hat{p}_i$ is the prediction for the $i$th test observation, and $y_i \in \{0,1\}$ are the true test set labels. 
+
+::: {.callout-note title="Solution"}
+```{r}
+# Load libraries
+library(glmnet)
+library(dplyr)
+library(readr)  
+
+# Define preprocess function
+preprocess_function <- function(data) {
+  data <- data %>%
+    mutate(across(c(tod, dow, LOC, POA, MOA), as.factor))  
+  data <- na.omit(data)  
+  numeric_cols <- c("spatial", "temporal", "TIMERANGE")  
+  data[numeric_cols] <- scale(data[numeric_cols])  
+  return(data)
+}
+
+# Preprocess training data
+linkage_train <- preprocess_function(linkage_train)
+
+# Prepare training data for modeling
+X_train <- as.matrix(linkage_train %>% select(spatial, temporal, tod, dow, LOC, POA, MOA, TIMERANGE))
+y_train <- linkage_train$y 
+
+# Fit the elastic net model for logistic regression
+set.seed(123)  
+alpha_value <- 0.5
+cv_model <- cv.glmnet(X_train, y_train, alpha = alpha_value, family = "binomial")
+
+# Load and preprocess test data
+dir_data <- 'https://mdporter.github.io/teaching/data/'  
+test_data <- read_csv(file.path(dir_data, "linkage_test.csv"))
+test_data <- preprocess_function(test_data)
+
+# Prepare test data for predictions
+X_test <- as.matrix(test_data %>% select(spatial, temporal, tod, dow, LOC, POA, MOA, TIMERANGE))
+
+# Predict probabilities on test data
+test_probs <- predict(cv_model, newx = X_test, s = "lambda.min", type = "response")
+
+# Create submission df
+submission_a <- data.frame(p = test_probs)
+
+# Save to csv
+write.csv(submission_a, "davidson_georgia_1.csv", row.names = FALSE)
+
+```
+
+
+:::
+
+
+## b. Contest Part 2: Predict the *linkage label*. 
+
+Predict the linkages for the test data (using any model). 
+
+- Submit a .csv file (ensure comma separated format) named `lastname_firstname_2.csv` that includes the column named **linkage** that takes the value of 1 for linked pairs and 0 for unlinked pairs. We will use automated evaluation, so the format must be exact. 
+- You are free to any model (even ones we haven't yet covered in the course).
+- You are free to use any data transformation or feature engineering.
+- Your labels will be evaluated based on total cost, where cost is equal to `1*FP + 8*FN`. This implies that False Negatives (FN) are 8 times as costly as False Positives (FP).    
+- You will receive credit for a proper submission; the top five scores will receive 2 bonus points. Note: you only will get bonus credit for one of the two contests. 
+
+::: {.callout-note title="Solution"}
+```{r}
+
+# Define preprocess function
+preprocess_function <- function(data) {
+  data <- data %>%
+    mutate(across(c(tod, dow, LOC, POA, MOA), as.factor))  
+  data <- na.omit(data)  
+  numeric_cols <- c("spatial", "temporal", "TIMERANGE")  
+  data[numeric_cols] <- scale(data[numeric_cols])  
+  return(data)
+}
+
+# Load training data and preprocess it
+linkage_train <- preprocess_function(linkage_train)
+
+# Prepare training data for modeling
+X_train <- as.matrix(linkage_train %>% select(spatial, temporal, tod, dow, LOC, POA, MOA, TIMERANGE))
+y_train <- linkage_train$y  
+
+# Fit elastic net model for logistic regression
+set.seed(123)  
+alpha_value <- 0.5
+cv_model <- cv.glmnet(X_train, y_train, alpha = alpha_value, family = "binomial")
+
+# Load/preprocess test data
+dir_data <- 'https://mdporter.github.io/teaching/data/'  
+test_data <- read_csv(file.path(dir_data, "linkage_test.csv"))
+test_data <- preprocess_function(test_data)
+
+# Prepare test data for predictions
+X_test <- as.matrix(test_data %>% select(spatial, temporal, tod, dow, LOC, POA, MOA, TIMERANGE))
+
+# Predict probabilities on test data
+test_probs <- predict(cv_model, newx = X_test, s = "lambda.min", type = "response")
+
+# Convert probabilities to linkage labels using threshold
+threshold <- 0.5  
+predicted_labels <- ifelse(test_probs >= threshold, 1, 0)
+
+# Create submission df
+submission_b <- data.frame(linkage = as.integer(predicted_labels))
+
+# Save to CSV
+write.csv(submission_b, "davidson_georgia_2.csv", row.names = FALSE)
+
+```
+:::
+
